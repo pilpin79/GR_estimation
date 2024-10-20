@@ -28,9 +28,10 @@ if SIMULATION:
     )
     frequencies = np.genfromtxt("data/simulation_data/freq_samples.csv", delimiter=",")
     grs = np.genfromtxt("data/simulation_data/grs.csv", delimiter=",")
-    averege_gr_over_time = np.genfromtxt(
+    average_gr_over_time = np.genfromtxt(
         "data/simulation_data/averegre_gr_over_time.csv", delimiter=","
     )
+    timestamps = np.arange(0, 500 * frequencies.shape[0], 500)
 else:
     experiment_data = pd.read_csv("csvs_for_drive/experiment_data.csv")
     sizes_total_array = (
@@ -49,25 +50,25 @@ nonzero_indices = np.split(
 zero_indices = np.split(zero_indices, np.where(np.diff(zero_indices) != 1)[0] + 1)
 
 # Kfir method
-kfir_averege_gr_list = []
+kfir_average_gr_list = []
 for growth_period in zero_indices:
     if growth_period[0] == 0:
-        kfir_averege_gr_list.append(0)
+        kfir_average_gr_list.append(0)
         continue
     start = growth_period[0] - 1
     stop = growth_period[-1]
     time_elapsed = DT * (stop - start)
     kfir_gr = np.log(sizes[stop] / sizes[start]) / time_elapsed
-    kfir_averege_gr_list.append(kfir_gr)
+    kfir_average_gr_list.append(kfir_gr)
 
-kfir_averege_gr_over_time = np.zeros(sizes.shape[0])
+kfir_average_gr_over_time = np.zeros(sizes.shape[0])
 for i in range(len(nonzero_indices)):
-    kfir_gr = kfir_averege_gr_list[i]
-    kfir_averege_gr_over_time[zero_indices[i]] = kfir_gr
-    kfir_averege_gr_over_time[nonzero_indices[i]] = kfir_gr
+    kfir_gr = kfir_average_gr_list[i]
+    kfir_average_gr_over_time[zero_indices[i]] = kfir_gr
+    kfir_average_gr_over_time[nonzero_indices[i]] = kfir_gr
 
 # Ruti method
-ruti_averege_gr_list = [0]
+ruti_average_gr_list = [0]
 for i in range(1, len(nonzero_indices)):
     growth_period = zero_indices[i]
     pump_period = nonzero_indices[i]
@@ -79,16 +80,36 @@ for i in range(1, len(nonzero_indices)):
     ruti_gr = (
         (pumped_out_vol / VOLUME) + np.log(sizes[stop] / sizes[start])
     ) / time_elapsed
-    ruti_averege_gr_list.append(ruti_gr)
+    ruti_average_gr_list.append(ruti_gr)
 
-ruti_averege_gr_over_time = np.zeros(sizes.shape[0])
+ruti_average_gr_over_time = np.zeros(sizes.shape[0])
 for i in range(len(nonzero_indices)):
-    ruti_gr = ruti_averege_gr_list[i]
-    ruti_averege_gr_over_time[zero_indices[i]] = ruti_gr
-    ruti_averege_gr_over_time[nonzero_indices[i]] = ruti_gr
+    ruti_gr = ruti_average_gr_list[i]
+    ruti_average_gr_over_time[zero_indices[i]] = ruti_gr
+    ruti_average_gr_over_time[nonzero_indices[i]] = ruti_gr
 
-plt.plot(averege_gr_over_time)
-plt.plot(kfir_averege_gr_over_time)
-plt.plot(ruti_averege_gr_over_time)
+n_of_timestamps, n_of_grs = frequencies.shape
+kfir_strain_grs_table = np.zeros((n_of_timestamps - 1, n_of_grs))
+ruti_strain_grs_table = np.zeros((n_of_timestamps - 1, n_of_grs))
+# relative frequency calculation
+for i in range(n_of_timestamps - 1):
+    prev_ts = timestamps[i]
+    curr_ts = timestamps[i + 1]
+    time_elapsed = DT * (curr_ts - prev_ts)
+
+    prev_relative_freq = frequencies[i, :]
+    curr_relative_freq = frequencies[i + 1, :]
+    log_relative_freq = np.log(curr_relative_freq / prev_relative_freq)
+    kfir_average_gr = np.mean(kfir_average_gr_over_time[prev_ts:curr_ts])
+    ruti_average_gr = np.mean(ruti_average_gr_over_time[prev_ts:curr_ts])
+    kfir_strain_grs = log_relative_freq / time_elapsed + kfir_average_gr
+    ruti_strain_grs = log_relative_freq / time_elapsed + ruti_average_gr
+    kfir_strain_grs_table[i, :] = kfir_strain_grs
+    ruti_strain_grs_table[i, :] = ruti_strain_grs
+
+
+plt.plot(average_gr_over_time)
+plt.plot(kfir_average_gr_over_time)
+plt.plot(ruti_average_gr_over_time)
 plt.show()
 print(0)
