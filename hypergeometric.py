@@ -1,5 +1,4 @@
 import numpy as np
-from numba import jit
 
 
 def multivariate_hypergeometric(m, n):
