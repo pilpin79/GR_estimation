@@ -16,7 +16,7 @@ VOLUME = 90  # mL
 PUMP_OUT_RATE = 80  # mL / Hour
 
 SIMULATION = True
-USE_PUMP_DATA = False
+USE_PUMP_DATA = True
 
 
 def load_data(simulation=True):
@@ -69,8 +69,8 @@ def get_indices(sizes, pump_rate_array, use_pump_data=True):
         nonzero_indices = np.where(diffs <= 0)[0] + 1
 
         # Include the start index for each segment
-        #zero_indices = np.r_[0, zero_indices]
-        #nonzero_indices = np.r_[0, nonzero_indices]
+        # zero_indices = np.r_[0, zero_indices]
+        # nonzero_indices = np.r_[0, nonzero_indices]
 
         # Split the indices into continuous runs
         zero_indices = np.split(
@@ -117,6 +117,7 @@ def calculate_kfir_growth_rate(zero_indices, nonzero_indices, sizes):
 
     return average_gr_over_time
 
+
 def calculate_ruti_ajusted_growth_rate(zero_indices, nonzero_indices, sizes):
     average_gr_list = []
     for i in range(len(nonzero_indices)):
@@ -127,7 +128,8 @@ def calculate_ruti_ajusted_growth_rate(zero_indices, nonzero_indices, sizes):
         stop = pump_period[-1]
         time_elapsed = DT * (middle - start)
         gr = (
-            np.log(sizes[stop] / sizes[start]) - np.log(1 - (sizes[middle] - sizes[stop]) / sizes[middle])
+            np.log(sizes[stop] / sizes[start])
+            - np.log(1 - (sizes[middle] - sizes[stop]) / sizes[middle])
         ) / time_elapsed
         average_gr_list.append(gr)
 
@@ -194,7 +196,12 @@ sizes, pump_rate_array, frequencies, grs, average_gr_over_time, timestamps = loa
 
 zero_indices, nonzero_indices = get_indices(sizes, pump_rate_array, USE_PUMP_DATA)
 
-# Kfir method
+# Kfir Ajusted method
+kfir_average_gr_over_time = calculate_kfir_growth_rate(
+    zero_indices, nonzero_indices, sizes
+)
+
+# Ruti Ajusted method
 ruti_ajusted_average_gr_over_time = calculate_ruti_ajusted_growth_rate(
     zero_indices, nonzero_indices, sizes
 )
@@ -204,6 +211,7 @@ ruti_average_gr_over_time = calculate_ruti_growth_rate(
     zero_indices, nonzero_indices, sizes, pump_rate_array
 )
 
+plt.plot(kfir_average_gr_over_time)
 plt.plot(ruti_ajusted_average_gr_over_time)
 plt.plot(ruti_average_gr_over_time)
 plt.show()
