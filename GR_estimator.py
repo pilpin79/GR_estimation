@@ -15,8 +15,8 @@ DT_OF_SAMPLE = 5 / 600  # In hour
 VOLUME = 90  # mL
 PUMP_OUT_RATE = 80  # mL / Hour
 
-SIMULATION = True
-USE_PUMP_DATA = True
+SIMULATION = False
+USE_PUMP_DATA = False
 
 
 def load_data(simulation=True):
@@ -42,10 +42,12 @@ def load_data(simulation=True):
         pump_rate_array = (
             np.array(experiment_data["Pump_Rate[mL/h]"]) * 2 * 30 * (10**6)
         ).astype(np.int64)[11:]
-        frequencies = None
+        frequencies_table = pd.read_csv('data/experiment_data/frequency_data.csv')
+        timestamps_in_hours = list(frequencies_table.columns)
+        timestamps = [int(float(i)* 12) for i in timestamps_in_hours]
+        frequencies = frequencies_table.values.T
         grs = None
         average_gr_over_time = None
-        timestamps = None
     return sizes, pump_rate_array, frequencies, grs, average_gr_over_time, timestamps
 
 
@@ -211,10 +213,10 @@ ruti_average_gr_over_time = calculate_ruti_growth_rate(
     zero_indices, nonzero_indices, sizes, pump_rate_array
 )
 
-plt.plot(kfir_average_gr_over_time)
-plt.plot(ruti_ajusted_average_gr_over_time)
-plt.plot(ruti_average_gr_over_time)
-plt.show()
+#plt.plot(kfir_average_gr_over_time)
+#plt.plot(ruti_ajusted_average_gr_over_time)
+#plt.plot(ruti_average_gr_over_time)
+#plt.show()
 
 # Relative frequency calculation
 kfir_strain_grs_table = calculate_relative_frequency(
