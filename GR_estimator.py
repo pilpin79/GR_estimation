@@ -1,255 +1,167 @@
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
-from typing import Tuple, List
 
-N_OF_SPECIES: int = round(25 * 10**3)
-TOTAL_SIZE: int = round(5.4 * 10**9)
-SIZE_PER_SPECIES: int = int(TOTAL_SIZE / N_OF_SPECIES)
-GR_MEAN: float = 0.33407776069792355  # Per hour
-GR_VAR: float = 0.0003118415980511718  # Per hour
-SIGMA: float = np.sqrt(np.log(1 + (GR_VAR / GR_MEAN**2)))
-MU: float = np.log(GR_MEAN) - (SIGMA**2) / 2
-EXPERIMENT_LENGTH: int = 51810  # 5 minute increments
-DT: float = 5 / 60  # In Hour
-DT_OF_SAMPLE: float = 5 / 600  # In hour
-VOLUME: float = 90  # mL
-PUMP_OUT_RATE: float = 80  # mL / Hour
+# Constants
+N_OF_SPECIES = round(25 * 10**3)
+TOTAL_SIZE = round(5.4 * 10**9)
+SIZE_PER_SPECIES = int(TOTAL_SIZE / N_OF_SPECIES)
+GR_MEAN = 0.33407776069792355
+GR_VAR = 0.0003118415980511718
+SIGMA = np.sqrt(np.log(1 + (GR_VAR / GR_MEAN**2)))
+MU = np.log(GR_MEAN) - (SIGMA**2) / 2
+EXPERIMENT_LENGTH = 51810
+DT = 5 / 60
+DT_OF_SAMPLE = 5 / 600
+VOLUME = 90
+PUMP_OUT_RATE = 80
 
-SIMULATION: bool = False
-USE_PUMP_DATA: bool = False
+# Configuration flags
+SIMULATION = False
+USE_PUMP_DATA = False
 
-
-def load_growth_data() -> Tuple[np.ndarray, np.ndarray]:
+def load_growth_data():
+    """Load growth rate data from CSV files."""
     grs = np.genfromtxt("data/simulation_data/grs.csv", delimiter=",")
-    average_gr_over_time = np.genfromtxt(
-        "data/simulation_data/averegre_gr_over_time.csv", delimiter=","
-    )
-    return grs, average_gr_over_time
+    avg_gr = np.genfromtxt("data/simulation_data/averegre_gr_over_time.csv", delimiter=",")
+    return grs, avg_gr
 
-
-def load_data(
-    simulation: bool = True,
-) -> Tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
+def load_data(simulation=True):
+    """Load experimental or simulation data."""
     if simulation:
         sizes = np.genfromtxt("data/simulation_data/sizes_sum.csv", delimiter=",")
-        pump_rate_array = (
-            np.genfromtxt("data/simulation_data/total_pump_array.csv", delimiter=",")
-            * PUMP_OUT_RATE
-        )
-        frequencies = np.genfromtxt(
-            "data/simulation_data/freq_samples.csv", delimiter=","
-        )
+        pump_rates = np.genfromtxt("data/simulation_data/total_pump_array.csv", delimiter=",") * PUMP_OUT_RATE
+        frequencies = np.genfromtxt("data/simulation_data/freq_samples.csv", delimiter=",")
         timestamps = np.arange(0, 500 * frequencies.shape[0], 500)
     else:
-        experiment_data = pd.read_csv("data/experiment_data/experiment_data.csv")
-        sizes = (
-            np.array(experiment_data["OD_Converted"]) * 90 * 30 * (10**6)
-        ).astype(np.int64)[11:]
-        pump_rate_array = (
-            np.array(experiment_data["Pump_Rate[mL/h]"]) * 2 * 30 * (10**6)
-        ).astype(np.int64)[11:]
-        frequencies_table = pd.read_csv("data/experiment_data/frequency_data.csv")
-        timestamps_in_hours = list(frequencies_table.columns)
-        timestamps = [int(float(i) * 12) for i in timestamps_in_hours]
-        frequencies = frequencies_table.values.T
-    return sizes, pump_rate_array, frequencies, timestamps
+        exp_data = pd.read_csv("data/experiment_data/experiment_data.csv")
+        sizes = (exp_data["OD_Converted"].values * 90 * 30 * 1e6).astype(int)[11:]
+        pump_rates = (exp_data["Pump_Rate[mL/h]"].values * 2 * 30 * 1e6).astype(int)[11:]
+        freq_table = pd.read_csv("data/experiment_data/frequency_data.csv")
+        timestamps = [int(float(i) * 12) for i in freq_table.columns]
+        frequencies = freq_table.values.T
+    return sizes, pump_rates, frequencies, timestamps
 
-
-def get_indices(
-    sizes: np.ndarray, pump_rate_array: np.ndarray, use_pump_data: bool = True
-) -> Tuple[List[List[int]], List[List[int]]]:
-    if use_pump_data:
-        nonzero_indices = np.nonzero(pump_rate_array)[0]
-        zero_indices = np.where(pump_rate_array == 0)[0]
-
-        nonzero_indices = np.split(
-            nonzero_indices, np.where(np.diff(nonzero_indices) != 1)[0] + 1
-        )
-        zero_indices = np.split(
-            zero_indices, np.where(np.diff(zero_indices) != 1)[0] + 1
-        )
+def get_indices(sizes, pump_rates, use_pump=True):
+    """Identify growth and pump periods from data."""
+    if use_pump:
+        nonzero = np.nonzero(pump_rates)[0]
+        zero = np.where(pump_rates == 0)[0]
     else:
-        # Calculate differences between consecutive elements
         diffs = np.diff(sizes)
+        zero = np.where(diffs > 0)[0] + 1
+        nonzero = np.where(diffs <= 0)[0] + 1
 
-        # Find indices of increasing and decreasing segments
-        zero_indices = np.where(diffs > 0)[0] + 1
-        nonzero_indices = np.where(diffs <= 0)[0] + 1
+    nonzero = np.split(nonzero, np.where(np.diff(nonzero) != 1)[0] + 1)
+    zero = np.split(zero, np.where(np.diff(zero) != 1)[0] + 1)
 
-        # Split the indices into continuous runs
-        zero_indices = np.split(
-            zero_indices, np.where(np.diff(zero_indices) != 1)[0] + 1
-        )
-        nonzero_indices = np.split(
-            nonzero_indices, np.where(np.diff(nonzero_indices) != 1)[0] + 1
-        )
+    zero = [run.tolist() for run in zero if run.size >= 1]
+    nonzero = [run.tolist() for run in nonzero if run.size >= 1]
 
-    # Convert numpy arrays to lists
-    zero_indices = [run.tolist() for run in zero_indices if len(run) >= 1]
-    nonzero_indices = [run.tolist() for run in nonzero_indices if len(run) >= 1]
+    for i in range(len(zero)):
+        arr = zero[i]
+        zero[i] = np.insert(arr, 0, max(arr[0]-1, 0))
 
-    for i in range(len(zero_indices)):
-        arr = zero_indices[i]
-        new_value = max(arr[0] - 1, 0)
-        zero_indices[i] = np.insert(arr, 0, new_value)
+    if use_pump and zero:
+        zero[0] = zero[0][1:]
 
-    if use_pump_data:
-        zero_indices[0] = zero_indices[0][1:]
+    return zero, nonzero
 
-    return zero_indices, nonzero_indices
+def calculate_kfir_growth(zero_indices, nonzero_indices, sizes):
+    """Calculate growth rates using Kfir's method."""
+    growth_rates = []
+    for period in zero_indices:
+        start, stop = period[0], period[-1]
+        dt = DT * (stop - start)
+        gr = np.log(sizes[stop]/sizes[start]) / dt
+        growth_rates.append(gr)
+        if gr < 0: print("Negative growth rate detected")
 
+    gr_over_time = np.zeros_like(sizes)
+    for i, gr in enumerate(growth_rates):
+        gr_over_time[zero_indices[i]] = gr
+        gr_over_time[nonzero_indices[i]] = gr
+    
+    return gr_over_time[:-1] if gr_over_time[-1] == 0 else gr_over_time
 
-def calculate_kfir_growth_rate(
-    zero_indices: List[List[int]], nonzero_indices: List[List[int]], sizes: np.ndarray
-) -> np.ndarray:
-    average_gr_list: List[float] = []
-    for growth_period in zero_indices:
-        start = growth_period[0]
-        stop = growth_period[-1]
-        time_elapsed = DT * (stop - start)
-        gr = np.log(sizes[stop] / sizes[start]) / time_elapsed
-        average_gr_list.append(gr)
-        if gr < 0:
-            print(0)
-
-    average_gr_over_time = np.zeros(sizes.shape[0])
-    for i in range(len(nonzero_indices)):
-        gr = average_gr_list[i]
-        average_gr_over_time[zero_indices[i]] = gr
-        average_gr_over_time[nonzero_indices[i]] = gr
-
-    if average_gr_over_time[-1] == 0:
-        average_gr_over_time = average_gr_over_time[:-1]
-
-    return average_gr_over_time
-
-
-def calculate_ruti_ajusted_growth_rate(
-    zero_indices: List[List[int]], nonzero_indices: List[List[int]], sizes: np.ndarray
-) -> np.ndarray:
-    average_gr_list: List[float] = []
-    for i in range(len(nonzero_indices)):
-        growth_period = zero_indices[i]
-        pump_period = nonzero_indices[i]
+def calculate_ruti_growth(zero_indices, nonzero_indices, sizes, pump_rates):
+    """Calculate growth rates using Ruti's physical dilution method."""
+    growth_rates = []
+    for i, (growth_period, pump_period) in enumerate(zip(zero_indices, nonzero_indices)):
         start = growth_period[0]
         middle = growth_period[-1]
         stop = pump_period[-1]
-        time_elapsed = DT * (middle - start)
-        gr = (
-            np.log(sizes[stop] / sizes[start])
-            - np.log(1 - (sizes[middle] - sizes[stop]) / sizes[middle])
-        ) / time_elapsed
-        average_gr_list.append(gr)
+        dt_total = DT * (stop - start)
+        
+        pumped_vol = np.sum(pump_rates[middle+1:stop+1] * DT)
+        gr = (np.log(sizes[stop]/sizes[start]) + pumped_vol/VOLUME) / dt_total
+        growth_rates.append(gr)
 
-    average_gr_over_time = np.zeros(sizes.shape[0])
-    for i in range(len(nonzero_indices)):
-        gr = average_gr_list[i]
-        average_gr_over_time[zero_indices[i]] = gr
-        average_gr_over_time[nonzero_indices[i]] = gr
+    gr_over_time = np.zeros_like(sizes)
+    for i, gr in enumerate(growth_rates):
+        gr_over_time[zero_indices[i]] = gr
+        gr_over_time[nonzero_indices[i]] = gr
+    
+    return gr_over_time[:-1] if gr_over_time[-1] == 0 else gr_over_time
 
-    if average_gr_over_time[-1] == 0:
-        average_gr_over_time = average_gr_over_time[:-1]
-
-    return average_gr_over_time
-
-
-def calculate_ruti_growth_rate(
-    zero_indices: List[List[int]],
-    nonzero_indices: List[List[int]],
-    sizes: np.ndarray,
-    pump_rate_array: np.ndarray,
-) -> np.ndarray:
-    average_gr_list: List[float] = []
-    for i in range(len(nonzero_indices)):
-        growth_period = zero_indices[i]
-        pump_period = nonzero_indices[i]
+def calculate_ruti_adjusted_growth(zero_indices, nonzero_indices, sizes):
+    """Calculate growth rates using Ruti's adjusted dilution method."""
+    growth_rates = []
+    for i, (growth_period, pump_period) in enumerate(zip(zero_indices, nonzero_indices)):
         start = growth_period[0]
         middle = growth_period[-1]
         stop = pump_period[-1]
-        time_elapsed = DT * (stop - start)
-        pumped_out_vol = np.sum((pump_rate_array[middle + 1 : stop + 1]) * DT)
-        gr = (
-            (pumped_out_vol / VOLUME) + np.log(sizes[stop] / sizes[start])
-        ) / time_elapsed
-        average_gr_list.append(gr)
+        dt = DT * (middle - start)
+        
+        dilution_term = np.log(1 - (sizes[middle] - sizes[stop])/sizes[middle])
+        gr = (np.log(sizes[stop]/sizes[start]) - dilution_term) / dt
+        growth_rates.append(gr)
 
-    average_gr_over_time = np.zeros(sizes.shape[0])
-    for i in range(len(nonzero_indices)):
-        gr = average_gr_list[i]
-        average_gr_over_time[zero_indices[i]] = gr
-        average_gr_over_time[nonzero_indices[i]] = gr
+    gr_over_time = np.zeros_like(sizes)
+    for i, gr in enumerate(growth_rates):
+        gr_over_time[zero_indices[i]] = gr
+        gr_over_time[nonzero_indices[i]] = gr
+    
+    return gr_over_time[:-1] if gr_over_time[-1] == 0 else gr_over_time
 
-    if average_gr_over_time[-1] == 0:
-        average_gr_over_time = average_gr_over_time[:-1]
+def plot_comparison(sizes, pump_rates):
+    """Generate comparison plots."""
+    # Pump rate vs OD plot
+    plt.figure(figsize=(12, 6))
+    ax1 = plt.gca()
+    time_points = np.arange(800, 900)
+    ax1.plot(5*time_points, pump_rates[800:900], 'b-', label='Pump Rate')
+    ax1.set_ylabel('Pump Rate (mL/h)', color='b')
+    ax1.tick_params(axis='y', labelcolor='b')
+    
+    ax2 = ax1.twinx()
+    ax2.plot(5*time_points, sizes[800:900], 'r-', label='OD')
+    ax2.set_ylabel('Optical Density', color='r')
+    ax2.tick_params(axis='y', labelcolor='r')
+    plt.title('Pump Rate vs Optical Density Comparison (Time 800-900)')
+    plt.show()
 
-    return average_gr_over_time
+    # Growth rate comparison plot
+    plt.figure(figsize=(12, 6))
+    plt.plot(kfir_gr, label="Kfir's Method", alpha=0.7)
+    plt.plot(ruti_gr, label="Ruti's Physical Dilution", alpha=0.7)
+    plt.plot(ruti_adjusted_gr, label="Ruti's Adjusted Dilution", alpha=0.7)
+    plt.title('Growth Rate Calculation Method Comparison')
+    plt.xlabel('Time (5-minute intervals)')
+    plt.ylabel('Growth Rate (1/hour)')
+    plt.legend()
+    plt.grid(True)
+    plt.show()
 
+if __name__ == "__main__":
+    # Load and process data
+    sizes, pump_rates, frequencies, timestamps = load_data(SIMULATION)
+    zero_idx, nonzero_idx = get_indices(sizes, pump_rates, USE_PUMP_DATA)
 
-def calculate_relative_frequency(
-    frequencies: np.ndarray, timestamps: np.ndarray, average_gr_over_time: np.ndarray
-) -> np.ndarray:
-    n_of_timestamps, n_of_grs = frequencies.shape
-    strain_grs_table = np.zeros((n_of_timestamps - 1, n_of_grs))
-    for i in range(n_of_timestamps - 1):
-        prev_ts = timestamps[i]
-        curr_ts = timestamps[i + 1]
-        time_elapsed = DT * (curr_ts - prev_ts)
+    # Calculate growth rates using all methods
+    kfir_gr = calculate_kfir_growth(zero_idx, nonzero_idx, sizes)
+    ruti_gr = calculate_ruti_growth(zero_idx, nonzero_idx, sizes, pump_rates)
+    ruti_adjusted_gr = calculate_ruti_adjusted_growth(zero_idx, nonzero_idx, sizes)
 
-        prev_relative_freq = frequencies[i, :]
-        curr_relative_freq = frequencies[i + 1, :]
-        log_relative_freq = np.log(curr_relative_freq / prev_relative_freq)
-        average_gr = np.mean(average_gr_over_time[prev_ts:curr_ts])
-        strain_grs = log_relative_freq / time_elapsed + average_gr
-        strain_grs_table[i, :] = strain_grs
-
-    return strain_grs_table
-
-
-sizes, pump_rate_array, frequencies, timestamps = load_data(SIMULATION)
-
-zero_indices, nonzero_indices = get_indices(sizes, pump_rate_array, USE_PUMP_DATA)
-
-# Kfir Ajusted method
-kfir_average_gr_over_time = calculate_kfir_growth_rate(
-    zero_indices, nonzero_indices, sizes
-)
-
-# Ruti Ajusted method
-ruti_ajusted_average_gr_over_time = calculate_ruti_ajusted_growth_rate(
-    zero_indices, nonzero_indices, sizes
-)
-
-# Ruti method
-ruti_average_gr_over_time = calculate_ruti_growth_rate(
-    zero_indices, nonzero_indices, sizes, pump_rate_array
-)
-
-plt.plot(kfir_average_gr_over_time)
-plt.plot(ruti_ajusted_average_gr_over_time)
-plt.plot(ruti_average_gr_over_time)
-plt.show()
-
-# Relative frequency calculation
-kfir_strain_grs_table = calculate_relative_frequency(
-    frequencies, timestamps, ruti_ajusted_average_gr_over_time
-)
-ruti_strain_grs_table = calculate_relative_frequency(
-    frequencies, timestamps, ruti_average_gr_over_time
-)
-
-n_of_timestamps, n_of_grs = frequencies.shape
-ruti_strain_grs_table = np.zeros((n_of_timestamps - 1, n_of_grs))
-
-frequency_inicator = frequencies > 4 * 10 ** (-5)
-frequency_inicator = frequency_inicator[:-1, :]
-# plt.plot(average_gr_over_time)
-plt.scatter(ruti_strain_grs_table[-1, :], grs)
-plt.plot([0, 1], [0, 1])
-plt.show()
-plt.plot(average_gr_over_time)
-plt.plot(kfir_average_gr_over_time)
-plt.plot(ruti_average_gr_over_time)
-plt.show()
-
-print(0)
+    # Generate plots
+    plot_comparison(sizes, pump_rates)
