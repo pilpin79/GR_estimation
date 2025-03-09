@@ -1,103 +1,99 @@
 import numpy as np
-from scipy.stats import lognorm, randint
-from hypergeometric import multivariate_hypergeometric
+import pandas as pd
+from datetime import datetime, timedelta
+from scipy.stats import lognorm
 from tqdm import tqdm
+from hypergeometric import multivariate_hypergeometric
 
-# Constants
-N_OF_SPECIES = round(25 * 10**3)
+# Original parameters preserved
+N_SPECIES = round(25 * 10**3)
 TOTAL_SIZE = round(5.4 * 10**9)
-SIZE_PER_SPECIES = int(TOTAL_SIZE / N_OF_SPECIES)
-GR_MEAN = 0.33407776069792355  # Per hour
-GR_VAR = 0.0003118415980511718  # Per hour
-SIGMA = np.sqrt(np.log(1 + (GR_VAR / GR_MEAN**2)))
-MU = np.log(GR_MEAN) - (SIGMA**2) / 2
-EXPERIMENT_LENGTH = 51810  # 5 minute increments
-DT = 5 / 600  # In Hour
-VOLUME = 90  # mL
-PUMP_OUT_RATE = 80  # mL / Hour
+CELLS_PER_SPECIES = TOTAL_SIZE // N_SPECIES
+GR_MEAN = 0.33407776069792355
+GR_VAR = 0.0003118415980511718
+DT = 5/60
+VOLUME = 90
+PUMP_RATE = 80
+EXPERIMENT_STEPS = 51810
+MEASURE_INTERVAL = int(EXPERIMENT_STEPS / 11)
 
-def initialize_system():
-    grs = lognorm.rvs(s=SIGMA, scale=np.exp(MU), size=N_OF_SPECIES)
-    sizes = randint.rvs(SIZE_PER_SPECIES - 100, SIZE_PER_SPECIES + 101, size=N_OF_SPECIES)
-    return grs, sizes
+# Derived parameters
+sigma = np.sqrt(np.log(1 + (GR_VAR / GR_MEAN**2)))
+mu = np.log(GR_MEAN) - (sigma**2)/2
 
-def run_simulation():
-    # Initialize
-    grs, sizes = initialize_system()
-    steps_b_measurements = 10
-    pump_is_on = False
+def initialize():
+    """Initialize species with lognormal growth rates"""
+    gr = lognorm.rvs(s=sigma, scale=np.exp(mu), size=N_SPECIES)
+    pop = np.full(N_SPECIES, CELLS_PER_SPECIES, dtype=np.int64)
+    return gr, pop
+
+def simulate():
+    """Main simulation with frequency tracking"""
+    gr, pop = initialize()
+    measurements = []
+    frequency_data = []
+    pump_active = False
+    start_time = datetime.strptime("01-01-2023 00:00:00", "%d-%m-%Y %H:%M:%S")
     
-    # Storage arrays
-    total_sizes_array = np.zeros((round(EXPERIMENT_LENGTH / steps_b_measurements), N_OF_SPECIES), dtype=int)
-    total_pump_array = np.zeros(round(EXPERIMENT_LENGTH / steps_b_measurements), dtype=bool)
-    total_ratio = np.zeros(round(EXPERIMENT_LENGTH / steps_b_measurements), dtype=float)
-    total_sizes_array[0, :] = sizes
-    
-    # Buffer arrays for intermediate steps
-    last_sizes_array = np.zeros((steps_b_measurements, N_OF_SPECIES), dtype=int)
-    last_sizes_array[0, :] = sizes
-    last_pump_array = np.zeros(steps_b_measurements, dtype=bool)
-    last_ratio = np.zeros(steps_b_measurements, dtype=float)
-
-    # Main simulation loop with progress bar
-    for i in tqdm(range(1, EXPERIMENT_LENGTH), desc="Running simulation"):
-        curr_step = i % 10
-        prev_step = curr_step - 1
-        curr_sizes = last_sizes_array[prev_step, :]
+    for step in tqdm(range(EXPERIMENT_STEPS), 
+                   desc="Simulating experiment", 
+                   unit="step",
+                   ncols=80):
+        # Growth phase
+        pop = np.round(pop * np.exp(gr * DT)).astype(np.int64)
+        total = pop.sum()
         
-        # Growth step
-        next_sizes = np.round(np.exp(grs * DT) * curr_sizes).astype(np.int64)
+        # Pump control logic
+        if total > 1.05 * TOTAL_SIZE:
+            pump_active = True
+        elif total < TOTAL_SIZE:
+            pump_active = False
         
-        # Pump step
-        if pump_is_on:
-            n_to_remove = round(np.sum(next_sizes) * (1 - np.exp(-PUMP_OUT_RATE * DT / VOLUME)))
-            to_remove = multivariate_hypergeometric(next_sizes, n_to_remove)
-            next_sizes = next_sizes - to_remove
+        # Dilution using hypergeometric sampling
+        if pump_active and total > 0:
+            frac = 1 - np.exp(-PUMP_RATE * DT / VOLUME)
+            remove_total = min(int(total * frac), total)
             
-        # Store intermediate results
-        last_sizes_array[curr_step, :] = next_sizes
-        last_pump_array[curr_step] = pump_is_on
-        last_ratio[curr_step] = np.sum(next_sizes) / np.sum(last_sizes_array[prev_step, :])
+            if remove_total > 0:
+                removed = multivariate_hypergeometric(pop, remove_total)
+                pop = np.maximum(pop - removed, 0)
         
-        # Store results every 10 steps
-        if i % 10 == 9:
-            total_sizes_array[i // 10, :] = next_sizes
-            total_pump_array[i // 10] = pump_is_on
-            total_ratio[i // 10] = np.sum(next_sizes) / np.sum(total_sizes_array[i // 10 - 1, :])
-        
-        # Update pump state
-        if np.sum(next_sizes) > TOTAL_SIZE * 1.05:
-            pump_is_on = True
-        elif np.sum(next_sizes) < TOTAL_SIZE:
-            pump_is_on = False
+        # Record measurements
+        if step % MEASURE_INTERVAL == 0:
+            current_total = pop.sum()
+            timestamp = start_time + timedelta(minutes=5*step)
             
-        # Removed progress print since we now have tqdm
+            # Store experiment measurements
+            measurements.append({
+                "Timestamp": timestamp.strftime("%d-%m-%Y %H:%M:%S"),
+                "OD_Converted": current_total / TOTAL_SIZE,
+                "Pump_Rate[mL/h]": PUMP_RATE if pump_active else 0
+            })
+            
+            # Store frequency measurements
+            if current_total > 0:
+                frequencies = pop / current_total
+            else:
+                frequencies = np.zeros_like(pop)
+            
+            freq_entry = {"Timestamp": timestamp.strftime("%d-%m-%Y %H:%M:%S")}
+            freq_entry.update({f"Strain_{i}": freq for i, freq in enumerate(frequencies)})
+            frequency_data.append(freq_entry)
     
-    return {
-        'sizes': total_sizes_array,
-        'growth_rates': grs,
-        'pump_states': total_pump_array,
-        'ratios': total_ratio
-    }
+    return measurements, gr, frequency_data
 
-def save_results(results):
-    np.savetxt("total_sizes_array.csv", results['sizes'], delimiter=",")
-    np.savetxt("grs.csv", results['growth_rates'], delimiter=",")
-    np.savetxt("total_pump_array.csv", results['pump_states'], delimiter=",")
+def save_results(measurements, growth_rates, frequency_data):
+    """Save all data to CSV files"""
+    # Save experiment metrics
+    pd.DataFrame(measurements).to_csv("experiment_metrics.csv", index=False)
     
-    # Calculate and save additional metrics
-    averegre_gr_over_time = np.dot(results['sizes'], results['growth_rates']) / np.sum(results['sizes'], axis=1)
-    np.savetxt("averegre_gr_over_time.csv", averegre_gr_over_time, delimiter=",")
+    # Save growth rates
+    pd.DataFrame({"Growth_Rate": growth_rates}).to_csv("growth_rates.csv", index=False)
     
-    sizes_sum = np.sum(results['sizes'], axis=1)
-    np.savetxt("sizes_sum.csv", sizes_sum, delimiter=",")
-    
-    sizes_sum = sizes_sum[:, np.newaxis]
-    freq_total = results['sizes'] / sizes_sum
-    freq_samples = freq_total[::500, :]
-    np.savetxt("freq_samples.csv", freq_samples, delimiter=",")
+    # Save frequencies
+    freq_df = pd.DataFrame(frequency_data)
+    freq_df.to_csv("strain_frequencies.csv", index=False)
 
-# Run simulation
 if __name__ == "__main__":
-    results = run_simulation()
-    save_results(results)
+    experiment_metrics, growth_rates, frequency_data = simulate()
+    save_results(experiment_metrics, growth_rates, frequency_data)
