@@ -1,174 +1,83 @@
-"""
-Yeast Turbidostat Growth Rate Analyzer
-Author: [Your Name]
-Date: [Date]
-Modified for DD-MM-YYYY timestamp format
-"""
-
 import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
 from pathlib import Path
 
-# =============================================
-# Configuration
-# =============================================
-USE_MOCK_DATA = True  # Switch between real/mock data
-DATA_DIR = Path("data/simulation_data")  # Update this path as needed
-PLOT_STYLE = "seaborn-v0_8"  # Modern matplotlib style
-V_total = 90  # Turbidostat volume in mL
+# =============================================================================
+# SIMULATION PARAMETERS
+# =============================================================================
+N_SPECIES = round(25 * 10**3)         # Number of microbial species
+TOTAL_SIZE = round(5.4 * 10**9)       # Total population size (cells)
+CELLS_PER_SPECIES = TOTAL_SIZE // N_SPECIES  # Initial cells per species
+GR_MEAN = 0.33407776069792355         # Mean growth rate (hr⁻¹)
+GR_VAR = 0.0003118415980511718        # Growth rate variance (hr⁻¹)²
+DT = 5/60                             # Time step (5 minutes -> 0.0833 hrs)
+VOLUME = 90                           # Turbidostat volume (mL)
+PUMP_RATE = 80                        # Dilution pump rate (mL/h) 
+EXPERIMENT_STEPS = 5000              # Total 5-minute intervals (~179.9 days) 51810
+MEASURE_INTERVAL = int(EXPERIMENT_STEPS / 11)  # Measurement frequency (5-min steps)
 
-# =============================================
-# Data Loading Function
-# =============================================
-def load_turbidostat_data(use_mock: bool) -> tuple:
-    """Load dataset based on simulation flag"""
-    file_map = {
-        'experiment': DATA_DIR / "experiment_data.csv",
-        'growth_rates': DATA_DIR / "growth_rates.csv",
-        'mean_rates': DATA_DIR / "true_mean_growth_rates.csv",
-        'frequencies': DATA_DIR / "strain_frequencies.csv"
-    }
-    
-    if use_mock:
-        print("💻 Loading simulated data...")
-        return (
-            pd.read_csv(file_map['experiment']),
-            pd.read_csv(file_map['growth_rates']),
-            pd.read_csv(file_map['mean_rates']),
-            pd.read_csv(file_map['frequencies'])
-        )
+# Derived parameters (unitless distribution parameters)
+sigma = np.sqrt(np.log(1 + (GR_VAR / GR_MEAN**2)))  # Lognormal shape parameter
+mu = np.log(GR_MEAN) - (sigma**2)/2  # Lognormal scale parameter
+
+# =============================================================================
+# CORE SIMULATION FUNCTIONS
+# =============================================================================
+
+# Load data
+exp_data = pd.read_csv(Path("data/simulation_data/experiment_data.csv"))
+true_gr = pd.read_csv(Path("data/simulation_data/true_mean_growth_rates.csv"))
+
+# Process timestamps
+
+exp_data['Timestamp'] = pd.to_datetime(exp_data['Timestamp'], format='%d-%m-%Y %H:%M:%S')
+true_gr['Timestamp'] = pd.to_datetime(true_gr['Timestamp'], format='%d-%m-%Y %H:%M:%S')
+
+# Extract OD values as NumPy array
+od_vals = exp_data['OD_Converted'].values  # [12]
+
+# Calculate increasing subsequences
+inc_mask = od_vals[1:] > od_vals[:-1]
+inc_breaks = np.where(~inc_mask)[0]
+inc_bounds = np.column_stack([np.r_[0, inc_breaks+1], np.r_[inc_breaks+1, len(od_vals)]])
+growth_phases = [exp_data.iloc[start:end] for start, end in inc_bounds if (end-start) >= 2]
+
+# Calculate decreasing subsequences
+dec_mask = od_vals[1:] < od_vals[:-1]
+dec_breaks = np.where(~dec_mask)[0]
+dec_bounds = np.column_stack([np.r_[0, dec_breaks+1], np.r_[dec_breaks+1, len(od_vals)]])
+pump_phases = [exp_data.iloc[start:end] for start, end in dec_bounds if (end-start) >= 2]
+
+growth_pump_cycles = []
+curr_growth_phase = 0
+curr_pump_phase = 0
+
+while curr_growth_phase < len(growth_phases):
+    growth_phase = growth_phases[curr_growth_phase]
+    pump_phase = pump_phases[curr_pump_phase]
+    if growth_phase.index[-1] == pump_phase.index[0]:
+        growth_pump_cycles.append((growth_phase, pump_phase))
+        curr_growth_phase += 1
     else:
-        print("🔬 Loading experimental data...")
-        return (
-            pd.read_csv(file_map['experiment']),
-            None, None, None  # Placeholders for real data
-        )
+        curr_pump_phase += 1
 
-# =============================================
-# Main Processing Pipeline
-# =============================================
-def main():
-    plt.style.use(PLOT_STYLE)
-    
-    # Load data
-    df, gr_truth, mean_gr_truth, freq_truth = load_turbidostat_data(USE_MOCK_DATA)
-    
-    # Preprocess timestamps (modified format)
-    df['Timestamp'] = pd.to_datetime(df['Timestamp'], format='%d-%m-%Y %H:%M:%S')
-    df = df.sort_values('Timestamp').reset_index(drop=True)
-    df['delta_t'] = df['Timestamp'].diff().dt.total_seconds().fillna(0) / 3600
+kfir_average_gr_over_time = np.zeros(len(true_gr))
+for growth_entry, pump_entry in growth_pump_cycles:
+    log_od_difference = np.log(growth_entry['OD_Converted'].values[-1]) - np.log(growth_entry['OD_Converted'].values[0])
+    od_time_difference = (growth_entry['Timestamp'].values[-1] - growth_entry['Timestamp'].values[0]) / np.timedelta64(1, 'h')
+    kfir_average_gr_over_time[growth_entry.index[0]: pump_entry.index[-1]] = log_od_difference / od_time_difference
+ 
+ruti_adjusted_average_gr_over_time = np.zeros(len(true_gr))
+for growth_entry, pump_entry in growth_pump_cycles:
+    log_dilution_fraction = np.log(1 - (growth_entry['OD_Converted'].values[-1] - pump_entry['OD_Converted'].values[-1])/(growth_entry['OD_Converted'].values[-1]))
+    log_od_difference = (np.log(pump_entry['OD_Converted'].values[-1]) - np.log(growth_entry['OD_Converted'].values[0]))
+    od_growth_time_difference = (growth_entry['Timestamp'].values[-1] - growth_entry['Timestamp'].values[0]) / np.timedelta64(1, 'h')
+    ruti_adjusted_average_gr_over_time[growth_entry.index[0]: pump_entry.index[-1]] = (log_od_difference - log_dilution_fraction) / od_growth_time_difference
 
-    # Detect pump cycles
-    pump_changes = df['Pump_Rate[mL/h]'].ne(df['Pump_Rate[mL/h]'].shift()).cumsum()
-    pump_states = df.groupby(pump_changes).agg(
-        start=('Timestamp', 'first'),
-        end=('Timestamp', 'last'),
-        rate=('Pump_Rate[mL/h]', 'first')
-    ).reset_index(drop=True)
+plt.plot(true_gr['Timestamp'], true_gr['True_Mean_GR'], label='True Growth Rate')
+plt.plot(exp_data['Timestamp'], kfir_average_gr_over_time, label='KFIR Estimated Growth Rate', linestyle='--')
+plt.plot(exp_data['Timestamp'], ruti_adjusted_average_gr_over_time, label='RUTI ADJUSTED Estimated Growth Rate', linestyle=':')
+plt.show()
+print(0)
 
-    # Identify growth/dilution cycles
-    cycles = []
-    for i in range(len(pump_states)-1):
-        if pump_states.loc[i, 'rate'] == 0 and pump_states.loc[i+1, 'rate'] > 0:
-            cycles.append({
-                'growth_start': pump_states.loc[i, 'start'],
-                'growth_end': pump_states.loc[i+1, 'start'],
-                'cycle_end': pump_states.loc[i+1, 'end']
-            })
-
-    # Calculate growth rates for each cycle
-    results = []
-    for idx, cycle in enumerate(cycles):
-        # Extract phase data
-        growth_phase = df[(df.Timestamp >= cycle['growth_start']) & 
-                         (df.Timestamp <= cycle['growth_end'])]
-        full_cycle = df[(df.Timestamp >= cycle['growth_start']) & 
-                       (df.Timestamp <= cycle['cycle_end'])]
-        
-        if growth_phase.empty or full_cycle.empty:
-            continue
-            
-        # Get key parameters
-        N_start = growth_phase['OD_Converted'].iloc[0]
-        dt_grow = (cycle['growth_end'] - cycle['growth_start']).total_seconds()/3600
-        dt_total = (cycle['cycle_end'] - cycle['growth_start']).total_seconds()/3600
-        
-        # Kfir's Method (Growth phase only)
-        N_end = growth_phase['OD_Converted'].iloc[-1]
-        lambda_k = np.log(N_end/N_start)/dt_grow
-        
-        # Ruti's Physical Method (Full cycle)
-        pumped = (full_cycle['Pump_Rate[mL/h]'] * full_cycle.delta_t).sum()
-        N_cycle_end = full_cycle['OD_Converted'].iloc[-1]
-        lambda_p = (np.log(N_cycle_end/N_start) + pumped/V_total)/dt_total
-        
-        # Ruti's Adjusted Method (OD-based dilution)
-        N_max = N_end
-        N_stop = full_cycle['OD_Converted'].iloc[-1]
-        phi = (N_max - N_stop)/N_max
-        lambda_a = (np.log(N_stop/N_start) - np.log(1 - phi))/dt_grow
-        
-        results.append({
-            'Cycle': idx+1,
-            'Kfir': lambda_k,
-            'Physical': lambda_p,
-            'Adjusted': lambda_a
-        })
-
-    results_df = pd.DataFrame(results)
-
-    # =============================================
-    # Visualization
-    # =============================================
-    fig, ax = plt.subplots(figsize=(10, 6))
-    
-    # Plot estimation methods
-    methods = {
-        'Kfir': ('o-', '#2ca02c'),
-        'Physical': ('s--', '#1f77b4'),
-        'Adjusted': ('^:', '#ff7f0e')
-    }
-    for method, (style, color) in methods.items():
-        ax.plot(results_df['Cycle'], results_df[method], style,
-                color=color, markersize=8, linewidth=2, label=method)
-
-    # Add ground truth if available
-    if USE_MOCK_DATA and mean_gr_truth is not None:
-        true_gr = mean_gr_truth['True_Mean_GR'].iloc[0]
-        ax.axhline(true_gr, color='k', linestyle='--', linewidth=1.5, 
-                   label='True Mean')
-        ax.fill_between(results_df['Cycle'], true_gr*0.95, true_gr*1.05,
-                        color='gray', alpha=0.1)
-
-    # Formatting
-    ax.set_xlabel('Cycle Number', fontsize=12)
-    ax.set_ylabel('Growth Rate (hr⁻¹)', fontsize=12)
-    title = 'Growth Rate Estimation - ' + ('Simulation' if USE_MOCK_DATA else 'Experiment')
-    ax.set_title(title, fontsize=14)
-    ax.legend(fontsize=10)
-    ax.grid(True, alpha=0.3)
-    ax.set_xticks(results_df['Cycle'].astype(int))
-    plt.tight_layout()
-    plt.show()
-
-    # =============================================
-    # Reporting
-    # =============================================
-    print("\n▶ Growth Rate Estimation Results")
-    print(results_df.round(4).to_string(index=False))
-
-    if USE_MOCK_DATA:
-        print("\n🔍 Simulation Validation")
-        print("True Individual Growth Rates:")
-        print(gr_truth.describe().round(4))
-        
-        if freq_truth is not None:
-            print("\nFinal Strain Frequencies:")
-            print(freq_truth.tail(3).round(4))
-
-# =============================================
-# Execution
-# =============================================
-if __name__ == "__main__":
-    main()

@@ -2,7 +2,6 @@ import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 
-
 # frequency cleanup
 
 original_data = pd.read_csv(

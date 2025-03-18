@@ -1,51 +1,55 @@
 import numpy as np
+from numba import njit
+import time
+from multivar_hypergeom import MultivariateHypergeometric
 
+@njit
+def draw_sample(population_counts, sample_size):
+    k = len(population_counts)
+    counts = np.zeros(k, dtype=np.int64)
+    remaining = population_counts.copy()
+    total_remaining = np.sum(remaining)
+    
+    for _ in range(sample_size):
+        r = np.random.randint(0, total_remaining)
+        cum_sum = 0
+        for i in range(k):
+            cum_sum += remaining[i]
+            if r < cum_sum:
+                counts[i] += 1
+                remaining[i] -= 1
+                total_remaining -= 1
+                break
+    return counts
 
-def multivariate_hypergeometric(m, n):
-    """
-    Efficient sampling from a multivariate hypergeometric distribution.
+@njit(parallel=True)
+def multivariate_hypergeometric(population, sample_size, num_samples):
+    samples = np.zeros((num_samples, len(population)), dtype=np.int64)
+    for i in range(num_samples):
+        samples[i] = draw_sample(population, sample_size)
+    return samples
 
-    Parameters:
-    m (array-like): Number of items of each type in the population
-    n (int): Number of draws
-
-    Returns:
-    array: Random sample
-    """
-    remaining = n
-    result = np.zeros(len(m), dtype=np.int64)
-    total = np.sum(m)
-
-    for i in range(len(m) - 1):
-        if total > 0:
-            prob = m[i] / total
-            draw = np.random.binomial(remaining, prob)
-            result[i] = draw
-            remaining -= draw
-            total -= m[i]
-        else:
-            break
-
-    result[-1] = remaining
-    return result
-
-
-# Example usage
 if __name__ == "__main__":
-    m = np.array([1000000, 2000000, 1500000], dtype=np.int64)  # Large population
-    n = 100000  # Large number of draws
-
-    sample = multivariate_hypergeometric(m, n)
-    print("Sample:", sample)
-    print("Sum of sample:", np.sum(sample))
-    print("Expected proportions:", m / np.sum(m))
-    print("Actual proportions:", sample / n)
-
-    # Benchmark
-    from timeit import timeit
-
-    def benchmark(func, m, n, number=100):
-        return timeit(lambda: func(m, n), number=number) / number
-
-    time_taken = benchmark(multivariate_hypergeometric, m, n)
-    print(f"Average time taken: {time_taken:.6f} seconds")
+    # Microbial community parameters
+    N_SPECIES = round(25 * 10**3)      # 25,000 microbial species
+    TOTAL_SIZE = round(5.4 * 10**9)    # 5.4 billion total cells
+    population = np.full(N_SPECIES, TOTAL_SIZE // N_SPECIES, dtype=np.int64)
+    sample_size = round(0.007 * TOTAL_SIZE)  # 0.7% of total population
+    
+    # Warm-up JIT compilation
+    multivariate_hypergeometric(population[:10], 10, 1)
+    
+    # Performance test
+    print(f"Testing with:\n- {N_SPECIES:,} species\n- {TOTAL_SIZE:,} total cells")
+    print(f"- Sampling {sample_size:,} cells ({sample_size/TOTAL_SIZE:.1%})")
+    
+    start_time = time.perf_counter()
+    samples = multivariate_hypergeometric(population, sample_size, num_samples=1)
+    elapsed = time.perf_counter() - start_time
+    
+    # Validation checks
+    print("\nResults:")
+    print(f"Execution time: {elapsed:.2f} seconds")
+    print(f"Sample sum check: {samples.sum() == sample_size}")
+    print(f"Max per species: {samples.max()} (population: {population[0]})")
+    print("First 5 species counts:", samples[0, :5])
