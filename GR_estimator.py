@@ -67,7 +67,36 @@ for growth_entry, pump_entry in growth_pump_cycles:
     log_od_difference = np.log(growth_entry['OD_Converted'].values[-1]) - np.log(growth_entry['OD_Converted'].values[0])
     od_time_difference = (growth_entry['Timestamp'].values[-1] - growth_entry['Timestamp'].values[0]) / np.timedelta64(1, 'h')
     kfir_average_gr_over_time[growth_entry.index[0]: pump_entry.index[-1]] = log_od_difference / od_time_difference
- 
+
+ruti_average_gr_over_time = np.zeros(len(true_gr))
+for growth_entry, pump_entry in growth_pump_cycles:
+# Assuming your dataframe is named df
+    temp_df = pump_entry.copy()
+
+    # Shift Pump_Rate and set last entry to 0
+    temp_df['Pump_Rate[mL/h]'] = temp_df['Pump_Rate[mL/h]'].shift(-1)
+    temp_df.loc[temp_df.index[-1], 'Pump_Rate[mL/h]'] = 0
+
+    # Convert to datetime and sort
+    temp_df['Timestamp'] = pd.to_datetime(temp_df['Timestamp'])
+    temp_df = temp_df.sort_values('Timestamp')
+
+    # Calculate time deltas in hours
+    temp_df['Delta_Hours'] = (temp_df['Timestamp'].shift(-1) - temp_df['Timestamp']).dt.total_seconds() / 3600
+
+    # Calculate volume contributions and sum
+    temp_df['Contribution'] = temp_df['Pump_Rate[mL/h]'] * temp_df['Delta_Hours']
+    total_volume = temp_df['Contribution'].sum()
+
+    # Calculate pump volume ratio
+    pump_volume_ratio = total_volume / VOLUME
+
+    log_od_difference = np.log(pump_entry['OD_Converted'].values[-1]) - np.log(growth_entry['OD_Converted'].values[0])
+
+    od_time_difference = (pump_entry['Timestamp'].values[-1] - growth_entry['Timestamp'].values[0]) / np.timedelta64(1, 'h')
+
+    ruti_average_gr_over_time[growth_entry.index[0]: pump_entry.index[-1]] = (log_od_difference + pump_volume_ratio) / od_time_difference
+
 ruti_adjusted_average_gr_over_time = np.zeros(len(true_gr))
 for growth_entry, pump_entry in growth_pump_cycles:
     log_dilution_fraction = np.log(1 - (growth_entry['OD_Converted'].values[-1] - pump_entry['OD_Converted'].values[-1])/(growth_entry['OD_Converted'].values[-1]))
@@ -78,6 +107,7 @@ for growth_entry, pump_entry in growth_pump_cycles:
 plt.plot(true_gr['Timestamp'], true_gr['True_Mean_GR'], label='True Growth Rate')
 plt.plot(exp_data['Timestamp'], kfir_average_gr_over_time, label='KFIR Estimated Growth Rate', linestyle='--')
 plt.plot(exp_data['Timestamp'], ruti_adjusted_average_gr_over_time, label='RUTI ADJUSTED Estimated Growth Rate', linestyle=':')
+plt.plot(exp_data['Timestamp'], ruti_average_gr_over_time, label='RUTI Estimated Growth Rate', linestyle='-.')
 plt.show()
 print(0)
 
