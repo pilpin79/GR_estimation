@@ -21,13 +21,18 @@ MEASURE_INTERVAL = int(EXPERIMENT_STEPS / 11)  # Measurement frequency (5-min st
 sigma = np.sqrt(np.log(1 + (GR_VAR / GR_MEAN**2)))  # Lognormal shape parameter
 mu = np.log(GR_MEAN) - (sigma**2)/2  # Lognormal scale parameter
 
+real_data = False
 # =============================================================================
 # CORE SIMULATION FUNCTIONS
 # =============================================================================
 
 # Load data
-exp_data = pd.read_csv(Path("data/simulation_data/experiment_data.csv"))
-true_gr = pd.read_csv(Path("data/simulation_data/true_mean_growth_rates.csv"))
+if real_data:
+    exp_data = pd.read_csv(Path("data/simulation_data/experiment_data.csv"))
+    true_gr = pd.read_csv(Path("data/simulation_data/true_mean_growth_rates.csv"))
+else:
+    exp_data = pd.read_csv(Path("data/simulation_data/experiment_data.csv"))
+    true_gr = pd.read_csv(Path("data/simulation_data/true_mean_growth_rates.csv"))
 
 # Process timestamps
 

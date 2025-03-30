@@ -106,8 +106,7 @@ def simulate():
 
 def save_results(measurements, growth_rates, frequency_data, mean_gr_data):
     """Save all datasets with compatible structure"""
-    data_dir = Path("data/experiment_data")
-    data_dir.mkdir(parents=True, exist_ok=True)
+    data_dir = Path("data/simulation_data")
     
     pd.DataFrame(measurements).to_csv(data_dir / "experiment_data.csv", index=False)
     pd.DataFrame({"Original_GRs": growth_rates}).to_csv(data_dir / "true_growth_rates.csv", index=False)
@@ -211,7 +210,7 @@ if __name__ == "__main__":
     save_results(experiment_data, original_grs, freq_data, mean_gr_data)
     
     # Loading
-    data_dir = Path("data/experiment_data")
+    data_dir = Path("data/simulation_data")
     experiment_data = pd.read_csv(data_dir / "experiment_data.csv")
     growth_rates_df = pd.read_csv(data_dir / "true_growth_rates.csv")
     mean_gr_data = pd.read_csv(data_dir / "true_mean_growth_rates.csv")
@@ -221,8 +220,8 @@ if __name__ == "__main__":
     plot_figures(experiment_data, mean_gr_data, freq_data, top_n=10)
     
     print("\nSimulation complete. Output files:")
-    print(f"• {Path('data/experiment_data')}/experiment_data.csv")
-    print(f"• {Path('data/experiment_data')}/true_growth_rates.csv")
-    print(f"• {Path('data/experiment_data')}/true_mean_growth_rates.csv")
-    print(f"• {Path('data/experiment_data')}/strain_frequencies.csv")
-    print(f"• {Path('data/experiment_data')}/simulation_overview.png")
+    print(f"• {Path('data/simulation_data')}/experiment_data.csv")
+    print(f"• {Path('data/simulation_data')}/true_growth_rates.csv")
+    print(f"• {Path('data/simulation_data')}/true_mean_growth_rates.csv")
+    print(f"• {Path('data/simulation_data')}/strain_frequencies.csv")
+    print(f"• {Path('data/simulation_data')}/simulation_overview.png")
