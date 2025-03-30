@@ -3,7 +3,9 @@ import numpy as np
 import pandas as pd
 from openpyxl import load_workbook
 
-#  od data
+# =============================================================================
+# OD DATA
+# =============================================================================
 
 wb = load_workbook(filename="data/unformatted_experiment_data/Manager 2154_Un_1_Reich_A_30c_Turbido_0.7.Control.xlsx")
 
@@ -17,10 +19,12 @@ experiment_data = experiment_data.rename(columns={
     'ODCX1.PV []': 'OD_Converted',
     'FD1.PV [mL/h]': 'Pump_Rate[mL/h]'
 })
+experiment_data['Timestamp'] = experiment_data['Timestamp'].dt.strftime('%d-%m-%Y %H:%M:%S')
 
-referance = pd.read_csv(
-    "data/simulation_data/strain_frequencies.csv"
-)
+# =============================================================================
+# STRAIN FREQUENCIES
+# =============================================================================
+
 original_data = pd.read_csv(
     "data/unformatted_experiment_data/A_freq_df_minutes.csv"
 )

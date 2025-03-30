@@ -21,23 +21,23 @@ MEASURE_INTERVAL = int(EXPERIMENT_STEPS / 11)  # Measurement frequency (5-min st
 sigma = np.sqrt(np.log(1 + (GR_VAR / GR_MEAN**2)))  # Lognormal shape parameter
 mu = np.log(GR_MEAN) - (sigma**2)/2  # Lognormal scale parameter
 
-real_data = False
+use_simulation = False
 # =============================================================================
 # CORE SIMULATION FUNCTIONS
 # =============================================================================
 
 # Load data
-if real_data:
+if use_simulation:
     exp_data = pd.read_csv(Path("data/simulation_data/experiment_data.csv"))
-    true_gr = pd.read_csv(Path("data/simulation_data/true_mean_growth_rates.csv"))
 else:
-    exp_data = pd.read_csv(Path("data/simulation_data/experiment_data.csv"))
-    true_gr = pd.read_csv(Path("data/simulation_data/true_mean_growth_rates.csv"))
+    exp_data = pd.read_csv(Path("data/experiment_data/experiment_data.csv"))
+
+if use_simulation: true_gr = pd.read_csv(Path("data/simulation_data/true_mean_growth_rates.csv")) 
 
 # Process timestamps
 
 exp_data['Timestamp'] = pd.to_datetime(exp_data['Timestamp'], format='%d-%m-%Y %H:%M:%S')
-true_gr['Timestamp'] = pd.to_datetime(true_gr['Timestamp'], format='%d-%m-%Y %H:%M:%S')
+if use_simulation: true_gr['Timestamp'] = pd.to_datetime(true_gr['Timestamp'], format='%d-%m-%Y %H:%M:%S')
 
 # Extract OD values as NumPy array
 od_vals = exp_data['OD_Converted'].values  # [12]
@@ -67,13 +67,13 @@ while curr_growth_phase < len(growth_phases):
     else:
         curr_pump_phase += 1
 
-kfir_average_gr_over_time = np.zeros(len(true_gr))
+kfir_average_gr_over_time = np.zeros(len(exp_data))
 for growth_entry, pump_entry in growth_pump_cycles:
     log_od_difference = np.log(growth_entry['OD_Converted'].values[-1]) - np.log(growth_entry['OD_Converted'].values[0])
     od_time_difference = (growth_entry['Timestamp'].values[-1] - growth_entry['Timestamp'].values[0]) / np.timedelta64(1, 'h')
     kfir_average_gr_over_time[growth_entry.index[0]: pump_entry.index[-1]] = log_od_difference / od_time_difference
 
-ruti_average_gr_over_time = np.zeros(len(true_gr))
+ruti_average_gr_over_time = np.zeros(len(exp_data))
 for growth_entry, pump_entry in growth_pump_cycles:
 # Assuming your dataframe is named df
     temp_df = pump_entry.copy()
@@ -102,14 +102,14 @@ for growth_entry, pump_entry in growth_pump_cycles:
 
     ruti_average_gr_over_time[growth_entry.index[0]: pump_entry.index[-1]] = (log_od_difference + pump_volume_ratio) / od_time_difference
 
-ruti_adjusted_average_gr_over_time = np.zeros(len(true_gr))
+ruti_adjusted_average_gr_over_time = np.zeros(len(exp_data))
 for growth_entry, pump_entry in growth_pump_cycles:
     log_dilution_fraction = np.log(1 - (growth_entry['OD_Converted'].values[-1] - pump_entry['OD_Converted'].values[-1])/(growth_entry['OD_Converted'].values[-1]))
     log_od_difference = (np.log(pump_entry['OD_Converted'].values[-1]) - np.log(growth_entry['OD_Converted'].values[0]))
     od_growth_time_difference = (growth_entry['Timestamp'].values[-1] - growth_entry['Timestamp'].values[0]) / np.timedelta64(1, 'h')
     ruti_adjusted_average_gr_over_time[growth_entry.index[0]: pump_entry.index[-1]] = (log_od_difference - log_dilution_fraction) / od_growth_time_difference
 
-plt.plot(true_gr['Timestamp'], true_gr['True_Mean_GR'], label='True Growth Rate')
+if use_simulation: plt.plot(true_gr['Timestamp'], true_gr['True_Mean_GR'], label='True Growth Rate')
 plt.plot(exp_data['Timestamp'], kfir_average_gr_over_time, label='KFIR Estimated Growth Rate', linestyle='--')
 plt.plot(exp_data['Timestamp'], ruti_adjusted_average_gr_over_time, label='RUTI ADJUSTED Estimated Growth Rate', linestyle=':')
 plt.plot(exp_data['Timestamp'], ruti_average_gr_over_time, label='RUTI Estimated Growth Rate', linestyle='-.')
