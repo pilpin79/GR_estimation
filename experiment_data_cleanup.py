@@ -25,27 +25,30 @@ original_data = pd.read_csv(
     "data/unformatted_experiment_data/A_freq_df_minutes.csv"
 )
 
-# Use melt to pivot columns into rows
-reshaped_df = original_data.melt(
-    id_vars=['Unnamed: 0', 'lineage'],
-    var_name='timestamp',
-    value_name='measurement'
+# Full transformation pipeline with time delta calculation
+# Full transformation pipeline with time delta replacing timestamps
+final_df = (
+    original_data.melt(
+        id_vars=['Unnamed: 0', 'lineage'],
+        var_name='timestamp',
+        value_name='measurement'
+    )
+    .assign(
+        # Convert timestamp to numeric and calculate timedelta
+        timestamp=lambda x: pd.to_numeric(x['timestamp']) - pd.to_numeric(x['timestamp']).iloc[0],  # Delta in minutes
+    )
+    .assign(
+        # Convert the numeric timestamp delta into timedelta format
+        timestamp=lambda x: pd.to_timedelta(x['timestamp'], unit='m')
+    )
+    .pivot(
+        index='timestamp',  # Replace with new timedelta-based timestamp
+        columns='lineage',
+        values='measurement'
+    )
+    .reset_index()
 )
 
-# Pivot to get lineages as columns
-final_df = reshaped_df.pivot(
-    index='timestamp',
-    columns='lineage',
-    values='measurement'
-).reset_index()
-
-frequencies = original_data.values
-frequencies = frequencies[:, 1:].astype(str)
-frequencies = np.char.replace(frequencies, "#NAME?", "0")
-frequencies = frequencies.astype(float)
-frequencies = np.nan_to_num(frequencies, nan=0, posinf=0, neginf=0)
-timestamps = original_data.columns.to_list()[1:]
-timestamps = [float(i) for i in timestamps]
-transformed_data = pd.DataFrame(frequencies, columns=timestamps)
-transformed_data.to_csv("frequency_data.csv", index=False)
+experiment_data.to_csv('data/experiment_data/experiment_data.csv')
+final_df.to_csv('data/experiment_data/strain_frequencies.csv')
 print(0)
