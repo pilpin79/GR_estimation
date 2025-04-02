@@ -49,7 +49,7 @@ inc_bounds = np.column_stack([np.r_[0, inc_breaks+1], np.r_[inc_breaks+1, len(od
 growth_phases = [exp_data.iloc[start:end] for start, end in inc_bounds if (end-start) >= 2]
 
 # Calculate decreasing subsequences
-dec_mask = od_vals[1:] < od_vals[:-1]
+dec_mask = od_vals[1:] <= od_vals[:-1]
 dec_breaks = np.where(~dec_mask)[0]
 dec_bounds = np.column_stack([np.r_[0, dec_breaks+1], np.r_[dec_breaks+1, len(od_vals)]])
 pump_phases = [exp_data.iloc[start:end] for start, end in dec_bounds if (end-start) >= 2]
@@ -59,6 +59,8 @@ curr_growth_phase = 0
 curr_pump_phase = 0
 
 while curr_growth_phase < len(growth_phases):
+    if curr_growth_phase == 34:
+        print(0)
     growth_phase = growth_phases[curr_growth_phase]
     pump_phase = pump_phases[curr_pump_phase]
     if growth_phase.index[-1] == pump_phase.index[0]:
