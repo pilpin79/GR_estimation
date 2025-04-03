@@ -42,32 +42,46 @@ if use_simulation: true_gr['Timestamp'] = pd.to_datetime(true_gr['Timestamp'], f
 # Extract OD values as NumPy array
 od_vals = exp_data['OD_Converted'].values  # [12]
 
-# Calculate increasing subsequences
-inc_mask = od_vals[1:] > od_vals[:-1]
-inc_breaks = np.where(~inc_mask)[0]
-inc_bounds = np.column_stack([np.r_[0, inc_breaks+1], np.r_[inc_breaks+1, len(od_vals)]])
-growth_phases = [exp_data.iloc[start:end] for start, end in inc_bounds if (end-start) >= 1]
+def find_consecutive_sections(arr):
+    diffs = np.diff(arr)
+    mask = diffs >= 0  # True for >=0 elements, False for negatives
+    change_points = np.where(np.diff(mask, prepend=mask[0]-1, append=mask[-1]-1))[0]
+    
+    pos_groups = []
+    neg_groups = []
+    
+    for start, end in zip(change_points[:-1], change_points[1:]):
+        section = np.arange(start, end).tolist()
+        (pos_groups if mask[start] else neg_groups).append(section)
+    
+    return pos_groups, neg_groups
 
-# Calculate decreasing subsequences
-dec_mask = od_vals[1:] <= od_vals[:-1]
-dec_breaks = np.where(~dec_mask)[0]
-dec_bounds = np.column_stack([np.r_[0, dec_breaks+1], np.r_[dec_breaks+1, len(od_vals)]])
-pump_phases = [exp_data.iloc[start:end] for start, end in dec_bounds if (end-start) >= 1]
+growth_phases, pump_phases = find_consecutive_sections(od_vals)
 
-growth_pump_cycles = []
+for entry in growth_phases:
+    entry.append(entry[-1]+1)
+
+for entry in pump_phases:
+    entry.append(entry[-1]+1)
+
+growth_pump_cycles_indeces = []
 curr_growth_phase = 0
 curr_pump_phase = 0
 
-while curr_growth_phase < len(growth_phases):
-    if curr_growth_phase == 278:
-        print(0)
+while curr_growth_phase < len(growth_phases) and curr_pump_phase < len(pump_phases):
     growth_phase = growth_phases[curr_growth_phase]
-    pump_phase = pump_phase[curr_pump_phase]
-    if growth_phase.index[-1] == pump_phase.index[0]:
-        growth_pump_cycles.append((growth_phase, pump_phase))
+    pump_phase = pump_phases[curr_pump_phase]
+    if growth_phase[-1] == pump_phase[0]:
+        growth_pump_cycles_indeces.append((growth_phase, pump_phase))
         curr_growth_phase += 1
     else:
         curr_pump_phase += 1
+
+growth_pump_cycles = []
+for growth_inds, pump_inds in growth_pump_cycles_indeces:
+    growth_df = exp_data.loc[growth_inds]
+    pump_df = exp_data.loc[pump_inds]
+    growth_pump_cycles.append((growth_df, pump_df))
 
 kfir_average_gr_over_time = np.zeros(len(exp_data))
 for growth_entry, pump_entry in growth_pump_cycles:
