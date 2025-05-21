@@ -2,6 +2,7 @@ import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
 from pathlib import Path
+import matplotlib.dates as mdates
 
 # =============================================================================
 # SIMULATION PARAMETERS
@@ -125,10 +126,76 @@ for growth_entry, pump_entry in growth_pump_cycles:
     od_growth_time_difference = (growth_entry['Timestamp'].values[-1] - growth_entry['Timestamp'].values[0]) / np.timedelta64(1, 'h')
     ruti_adjusted_average_gr_over_time[growth_entry.index[0]: pump_entry.index[-1]] = (log_od_difference - log_dilution_fraction) / od_growth_time_difference
 
-if use_simulation: plt.plot(true_gr['Timestamp'], true_gr['True_Mean_GR'], label='True Growth Rate')
-plt.plot(exp_data['Timestamp'], kfir_average_gr_over_time, label='KFIR Estimated Growth Rate', linestyle='--')
-plt.plot(exp_data['Timestamp'], ruti_adjusted_average_gr_over_time, label='RUTI ADJUSTED Estimated Growth Rate', linestyle=':')
-plt.plot(exp_data['Timestamp'], ruti_average_gr_over_time, label='RUTI Estimated Growth Rate', linestyle='-.')
+# =============================================================================
+# RENDERING RESULTS
+# =============================================================================
+
+#relative error calculation
+if use_simulation:
+    kfir_relative_error = np.abs((kfir_average_gr_over_time[5:-5] - true_gr['True_Mean_GR'][5:-5]) / true_gr['True_Mean_GR'][5:-5])
+    ruti_relative_error = np.abs((ruti_average_gr_over_time[5:-5] - true_gr['True_Mean_GR'][5:-5]) / true_gr['True_Mean_GR'][5:-5])
+    ruti_adjusted_relative_error = np.abs((ruti_adjusted_average_gr_over_time[5:-5] - true_gr['True_Mean_GR'][5:-5]) / true_gr['True_Mean_GR'][5:-5])
+else:
+    kfir_ruti_original_relative_error = np.abs((kfir_average_gr_over_time[750:288 * 2 + 760] - ruti_average_gr_over_time[750:288 * 2 + 760]) / ruti_average_gr_over_time[750:288 * 2 + 760])
+    kfir_ruti_adjusted_relative_error = np.abs((kfir_average_gr_over_time[750:288 * 2 + 760] - ruti_adjusted_average_gr_over_time[750:288 * 2 + 760]) / ruti_adjusted_average_gr_over_time[750:288 * 2 + 760])
+    ruti_adjusted_ruti_relative_error = np.abs((ruti_adjusted_average_gr_over_time[750:288 * 2 + 760] - ruti_average_gr_over_time[750:288 * 2 + 760]) / ruti_average_gr_over_time[750:288 * 2 + 760])
+    plt.plot(exp_data['Timestamp'][750:288 * 2 + 760], kfir_ruti_original_relative_error, label='Kfir, Ruti', linestyle='--')
+    plt.plot(exp_data['Timestamp'][750:288 * 2 + 760], kfir_ruti_adjusted_relative_error, label='Kfir, Ruti adjusted', linestyle=':')
+    plt.plot(exp_data['Timestamp'][750:288 * 2 + 760], ruti_adjusted_ruti_relative_error, label='Ruti Adjusted,  Ruti', linestyle='-.')
+    plt.xlabel('Time')
+    plt.ylabel('Relative Error')
+    ax = plt.gca()
+    ax.xaxis.set_major_formatter(mdates.DateFormatter('%d-%m-%Y'))
+
+    plt.xticks(rotation=45, ha='right')
+    plt.legend()
+    plt.title('Error of x relative to y - Experiment')
+    plt.tight_layout(pad=2)
+    plt.savefig(Path(f"data/experiment_data/relative error zoomed in - Experiment.png"), dpi=300)
+    plt.show()
+###
+
+if use_simulation: plt.plot(true_gr['Timestamp'][5:-5], true_gr['True_Mean_GR'][5:-5], label='True Growth Rate')
+plt.plot(exp_data['Timestamp'][5:-5], kfir_average_gr_over_time[5:-5], label='Kfir Estimated Growth Rate', linestyle='--')
+plt.plot(exp_data['Timestamp'][5:-5], ruti_adjusted_average_gr_over_time[5:-5], label='Ruti adjusted Estimated Growth Rate', linestyle=':')
+plt.plot(exp_data['Timestamp'][5:-5], ruti_average_gr_over_time[5:-5], label='Ruti Estimated Growth Rate', linestyle='-.')
+
+plt.title('Growth Rate Estimation - Simulation' if use_simulation else 'Growth Rate Estimation - Experiment')
+# Add these two lines to format dates as dd-mm-yyyy
+ax = plt.gca()
+ax.xaxis.set_major_formatter(mdates.DateFormatter('%d-%m-%Y'))
+
+plt.xticks(rotation=45, ha='right')
+plt.tight_layout(pad=2)
+plt.legend()
+plt.xlabel('Time')
+plt.ylabel('Growth Rate (hr⁻¹)')
+plt.savefig(Path(f"data/experiment_data/results of {'simulation' if use_simulation else 'experiment'}.png"), dpi=300)
 plt.show()
+
+plt.cla()
+
+plt.title('Growth Rate Estimation zoomed in - Experiment')
+if use_simulation: plt.plot(true_gr['Timestamp'][5:-5], true_gr['True_Mean_GR'][5:-5], label='True Growth Rate')
+plt.plot(exp_data['Timestamp'][5:-5], kfir_average_gr_over_time[5:-5], label='Kfir Estimated Growth Rate', linestyle='--')
+plt.plot(exp_data['Timestamp'][5:-5], ruti_adjusted_average_gr_over_time[5:-5], label='Ruti adjusted Estimated Growth Rate', linestyle=':')
+plt.plot(exp_data['Timestamp'][5:-5], ruti_average_gr_over_time[5:-5], label='Ruti Estimated Growth Rate', linestyle='-.')
+
+# Add these two lines to format dates as dd-mm-yyyy
+ax = plt.gca()
+ax.xaxis.set_major_formatter(mdates.DateFormatter('%d-%m-%Y'))
+
+plt.xticks(rotation=45, ha='right')
+plt.legend()
+plt.xlabel('Time')
+plt.ylabel('Growth Rate (hr⁻¹)')
+plt.xlim(exp_data['Timestamp'][750], exp_data['Timestamp'][288 * 2 + 760])  # Adjust the date range as needed
+plt.ylim(-0.25, 1.25)  # Adjust the date range as needed
+plt.tight_layout(pad=1)
+plt.savefig(Path(f"data/experiment_data/results of {'simulation' if use_simulation else 'experimen'} zoomed.png"), dpi=300)
+plt.show()
+
+# Relative error calculation
 print(0)
+
 
